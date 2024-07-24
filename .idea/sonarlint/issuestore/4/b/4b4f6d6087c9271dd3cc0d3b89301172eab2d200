@@ -1,10 +1,15 @@
 
-”
-java:S1192S"QDefine a constant instead of duplicating this literal "application/json" 3 times.(ˆ±¶è8Ó•ó¡2J$d49ff312-93e0-4a0f-9509-2712a1869282
-Š
-java:S1192S"GDefine a constant instead of duplicating this literal "Accept" 3 times.(ˆ±¶è8Ô•ó¡2J$fb3d21d4-1fdb-4589-bf4b-43cfcd3e19f4
+‰
+java:S1144œ"@Remove this unused private "translateWeatherDescription" method.(úÀÇûÿÿÿÿ8ï×İ§2J$34f87844-5bc8-4442-abda-3972bce82e90
 
-java:S1874*"JDon't override a deprecated method or explicitly mark it as "@Deprecated".(®É–Ø8®–ó¡2J$14280df5-ca6e-4d83-9b3b-cdece233675f
+java:S1874+"JDon't override a deprecated method or explicitly mark it as "@Deprecated".(®É–Ø8½Øİ§2J$0c38968a-4bf6-4141-8e46-9f1695e73a9d
 ¡
-java:S2142D"^Either re-interrupt this method or rethrow the "InterruptedException" that can be caught here.(ò¶È8Ã–ó¡2J$3b6ae863-7e7f-49ba-b1c8-31dd1fb5201e
-l	java:S106_"+Replace this use of System.err by a logger.(Éò]8ß–ó¡2J$7047e07f-f9a6-4ab4-871c-21ff375f2686
+java:S2142E"^Either re-interrupt this method or rethrow the "InterruptedException" that can be caught here.(ò¶È8üØİ§2J$82a67486-8c88-46a9-ad40-2880ef555d8d
+r	java:S106T"+Replace this use of System.out by a logger.(€§Ò¸úÿÿÿÿ8¦Úİ§2J$98a534de-6798-4cb5-95de-a2178f9bbee0
+m	java:S106U"+Replace this use of System.out by a logger.(ùê‚÷8¶Úİ§2J$b53c0b42-b6af-487a-820f-6e164e9c6d9f
+…
+java:S1854n"=Remove this useless assignment to local variable "formatter".(– àğşÿÿÿÿ8ÅÚİ§2J$05489a69-05be-4a26-8f1c-6b733d838eb8
+v
+java:S1481n".Remove this unused "formatter" local variable.(– àğşÿÿÿÿ8ÒÛİ§2J$f43fb846-588a-4e44-af01-3a7d099e9c02
+w
+java:S1128"/Remove this unused import 'org.json.JSONArray'.(¬¸Ê’üÿÿÿÿ8ÏÜİ§2J$9e180c94-b5de-435a-aa7d-dff00caa0236

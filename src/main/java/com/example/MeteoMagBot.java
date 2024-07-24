@@ -26,6 +26,7 @@ public class MeteoMagBot extends TelegramLongPollingBot {
 
     private static final String BOT_TOKEN = System.getenv("TELEGRAM_BOT_TOKEN");
     private static final String WEATHER_API_KEY = System.getenv("WEATHER_API_KEY");
+    private static final ZoneId USER_TIMEZONE = ZoneId.of("Europe/Moscow");
 
     private final Map<String, String> weatherDescriptions = new HashMap<>();
 
@@ -75,25 +76,17 @@ public class MeteoMagBot extends TelegramLongPollingBot {
 
     private boolean locationExists(String location) throws IOException, InterruptedException {
         String encodedLocation = URLEncoder.encode(location, StandardCharsets.UTF_8);
-        String nominatimUrl = String.format("https://nominatim.openstreetmap.org/search?q=%s&format=json&limit=1", encodedLocation);
+        String openWeatherMapUrl = String.format("http://api.openweathermap.org/data/2.5/weather?q=%s&appid=%s", encodedLocation, WEATHER_API_KEY);
 
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(nominatimUrl))
-                .header("Accept", "application/json")
-                .build();
+        HttpResponse<String> response = sendHttpRequest(openWeatherMapUrl);
 
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response != null) {
+            System.out.println("OpenWeatherMap Response Status Code: " + response.statusCode());
+            System.out.println("OpenWeatherMap Response Body: " + response.body());
 
-        if (response.statusCode() == 200) {
-            String responseBody = response.body();
-            // Проверяем, начинается ли ответ с '[' - признак валидного JSON массива
-            if (responseBody.startsWith("[")) {
-                var jsonArray = new JSONArray(responseBody); // Используем JSONArray для парсинга
-                return jsonArray.length() > 0;
-            } else {
-                System.err.println("Nominatim вернул не JSON массив: " + responseBody);
-                return false;
+            if (response.statusCode() == 200) {
+                JSONObject jsonObject = new JSONObject(response.body());
+                return !jsonObject.has("message"); // Если сообщение ошибки отсутствует, место существует
             }
         }
         return false;
@@ -105,80 +98,54 @@ public class MeteoMagBot extends TelegramLongPollingBot {
         }
 
         String encodedLocation = URLEncoder.encode(location, StandardCharsets.UTF_8);
-        String nominatimUrl = String.format("https://nominatim.openstreetmap.org/search?q=%s&format=json&limit=1",
-                encodedLocation);
+        String weatherUrl = String.format("http://api.openweathermap.org/data/2.5/weather?q=%s&appid=%s&units=metric&lang=ru",
+                encodedLocation, WEATHER_API_KEY);
+        HttpResponse<String> weatherResponse = sendHttpRequest(weatherUrl);
 
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest nominatimRequest = HttpRequest.newBuilder()
-                .uri(URI.create(nominatimUrl))
-                .header("Accept", "application/json")
-                .build();
+        if (weatherResponse != null && weatherResponse.statusCode() == 200) {
+            JSONObject weatherJsonObject = new JSONObject(weatherResponse.body());
+            double temperature = weatherJsonObject.getJSONObject("main").getDouble("temp");
+            String weatherDescription = weatherJsonObject.getJSONArray("weather").getJSONObject(0).getString("description");
 
-        HttpResponse<String> nominatimResponse = client.send(nominatimRequest, HttpResponse.BodyHandlers.ofString());
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+            LocalDateTime timeUtc = LocalDateTime.now(ZoneId.of("UTC"));
 
-        if (nominatimResponse.statusCode() == 200) {
-            var jsonArray = new JSONArray(nominatimResponse.body());
-            if (jsonArray.length() > 0) {
-                JSONObject locationData = jsonArray.getJSONObject(0);
-                double lat = locationData.getDouble("lat");
-                double lon = locationData.getDouble("lon");
+            LocalDateTime userTime = timeUtc.atZone(ZoneId.of("UTC")).withZoneSameInstant(USER_TIMEZONE).toLocalDateTime();
+            String formattedTime = userTime.format(DateTimeFormatter.ofPattern("HH:mm"));
 
-                // Используем координаты для запроса к Weatherbit API
-                String weatherUrl = String.format("https://api.weatherbit.io/v2.0/current?lat=%.6f&lon=%.6f&key=%s&lang=ru",
-                        lat, lon, WEATHER_API_KEY);
-                HttpRequest weatherRequest = HttpRequest.newBuilder()
-                        .uri(URI.create(weatherUrl))
-                        .header("Accept", "application/json")
-                        .build();
+            String weatherInfo = String.format("Температура в городе %s (%s): %.1f°C, %s",
+                    location, formattedTime, temperature, weatherDescription);
 
-                HttpResponse<String> weatherResponse = client.send(weatherRequest, HttpResponse.BodyHandlers.ofString());
+            weatherInfo += "\n\n" + getClothingRecommendation(temperature, weatherDescription);
 
-                if (weatherResponse.statusCode() == 200) {
-                    // Парсинг ответа от Weatherbit API
-                    JSONObject jsonObject = new JSONObject(weatherResponse.body());
-                    JSONObject data = jsonObject.getJSONArray("data").getJSONObject(0);
-                    double temperature = data.getDouble("temp");
-                    JSONObject weather = data.getJSONObject("weather");
-                    String weatherDescription = translateWeatherDescription(weather.getString("description"));
-
-                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-                    LocalDateTime timeUtc = LocalDateTime.parse(data.getString("ob_time"), formatter);
-
-                    ZoneId userTimeZone = ZoneId.of("Europe/Moscow"); // Устанавливаем часовой пояс Москвы
-                    LocalDateTime userTime = timeUtc.atZone(ZoneId.of("UTC")).withZoneSameInstant(userTimeZone).toLocalDateTime();
-
-                    String formattedTime = userTime.format(DateTimeFormatter.ofPattern("HH:mm"));
-
-                    String weatherInfo = String.format("Температура в городе %s (%s): %.1f°C, %s",
-                            location, formattedTime, temperature, weatherDescription);
-
-                    // Добавляем рекомендации по одежде:
-                    weatherInfo += "\n\n" + getClothingRecommendation(temperature, weatherDescription);
-
-                    return weatherInfo;
-                } else {
-                    return null;
-                }
-            }
+            return weatherInfo;
         }
         return null;
     }
 
+    private HttpResponse<String> sendHttpRequest(String url) throws IOException, InterruptedException {
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Accept", "application/json")
+                .build();
+
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     private void sendStartMessage(Long chatId) {
-        SendMessage startMessage = new SendMessage();
-        startMessage.setChatId(String.valueOf(chatId));
-        startMessage.setText("Привет! Меня зовут MeteoMag, могу показать тебе погоду. Просто отправь мне название города.");
-        try {
-            execute(startMessage);
-        } catch (TelegramApiException e) {
-            e.printStackTrace();
-        }
+        String text = "Привет! Меня зовут MeteoMag, могу показать тебе погоду. Просто отправь мне название города.";
+        sendMessage(chatId, text);
     }
 
     private void sendWeatherMessage(long chatId, String weatherInfo) {
+        sendMessage(chatId, weatherInfo);
+    }
+
+    private void sendMessage(long chatId, String text) {
         SendMessage message = new SendMessage();
         message.setChatId(String.valueOf(chatId));
-        message.setText(weatherInfo);
+        message.setText(text);
         try {
             execute(message);
         } catch (TelegramApiException e) {
@@ -191,23 +158,23 @@ public class MeteoMagBot extends TelegramLongPollingBot {
     }
 
     private String getClothingRecommendation(double temperature, String weatherDescription) {
-        String recommendation = "";
+        StringBuilder recommendation = new StringBuilder();
 
         if (temperature >= 25) {
-            recommendation += "Жарко! ☀️ Наденьте легкую одежду: шорты, футболку или платье.";
+            recommendation.append("Жарко! ☀️ Наденьте легкую одежду: шорты, футболку или платье.");
         } else if (temperature >= 15) {
-            recommendation += "Тепло! 🌤️  Подойдут джинсы, футболка, легкая куртка.";
+            recommendation.append("Тепло! 🌤️ Подойдут джинсы, футболка, легкая куртка.");
         } else if (temperature >= 5) {
-            recommendation += "Прохладно. 🍂  Наденьте свитер, куртку, джинсы.";
+            recommendation.append("Прохладно. 🍂 Наденьте свитер, куртку, джинсы.");
         } else {
-            recommendation += "Холодно! ❄️ Наденьте теплую куртку, шапку, шарф и перчатки.";
+            recommendation.append("Холодно! ❄️ Наденьте теплую куртку, шапку, шарф и перчатки.");
         }
 
         if (weatherDescription.contains("дождь")) {
-            recommendation += "\nНе забудьте зонт! ☔️";
+            recommendation.append("\nНе забудьте зонт! ☔️");
         }
 
-        return recommendation;
+        return recommendation.toString();
     }
 
     public static void main(String[] args) {
