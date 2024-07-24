@@ -1,5 +1,10 @@
 
-g
-java:S1874*"JDon't override a deprecated method or explicitly mark it as "@Deprecated".(®É–Ø8ô„şû2
+”
+java:S1192S"QDefine a constant instead of duplicating this literal "application/json" 3 times.(ˆ±¶è8Ó•ó¡2J$d49ff312-93e0-4a0f-9509-2712a1869282
+Š
+java:S1192S"GDefine a constant instead of duplicating this literal "Accept" 3 times.(ˆ±¶è8Ô•ó¡2J$fb3d21d4-1fdb-4589-bf4b-43cfcd3e19f4
+
+java:S1874*"JDon't override a deprecated method or explicitly mark it as "@Deprecated".(®É–Ø8®–ó¡2J$14280df5-ca6e-4d83-9b3b-cdece233675f
 ¡
-java:S2142>"^Either re-interrupt this method or rethrow the "InterruptedException" that can be caught here.(ò¶È8ŒÿşÒ2J$f7eef8a1-fac2-431e-bb1d-24f812bffbca
+java:S2142D"^Either re-interrupt this method or rethrow the "InterruptedException" that can be caught here.(ò¶È8Ã–ó¡2J$3b6ae863-7e7f-49ba-b1c8-31dd1fb5201e
+l	java:S106_"+Replace this use of System.err by a logger.(Éò]8ß–ó¡2J$7047e07f-f9a6-4ab4-871c-21ff375f2686
