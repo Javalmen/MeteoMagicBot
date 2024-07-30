@@ -7,46 +7,29 @@ import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 
 public class MeteoMagBot extends TelegramLongPollingBot {
 
-    private static final String BOT_TOKEN = System.getenv("TELEGRAM_BOT_TOKEN");
-    private static final String WEATHER_API_KEY = System.getenv("WEATHER_API_KEY");
-    private static final ZoneId USER_TIMEZONE = ZoneId.of("Europe/Moscow");
+    private static final Logger LOGGER = Logger.getLogger(MeteoMagBot.class.getName());
 
-    private final Map<String, String> weatherDescriptions = new HashMap<>();
-
-    public MeteoMagBot() {
-        weatherDescriptions.put("Thunderstorm", "Гроза");
-        weatherDescriptions.put("Drizzle", "Морось");
-        weatherDescriptions.put("Rain", "Дождь");
-        weatherDescriptions.put("Snow", "Снег");
-        weatherDescriptions.put("Clear", "Ясно");
-        weatherDescriptions.put("Clouds", "Облачно");
+    @Override
+    public String getBotUsername() {
+        return "MeteoMag";
     }
 
     @Override
     public String getBotToken() {
-        return BOT_TOKEN;
-    }
-
-    @Override
-    public String getBotUsername() {
-        return "MeteoMag"; // Замените на имя вашего бота
+        return System.getenv("TELEGRAM_BOT_TOKEN");
     }
 
     @Override
@@ -56,131 +39,254 @@ public class MeteoMagBot extends TelegramLongPollingBot {
             long chatId = update.getMessage().getChatId();
 
             if (messageText.equals("/start")) {
-                sendStartMessage(chatId);
+                sendResponse(chatId, "Привет! Я бот MeteoMag. Введите название населенного пункта, чтобы узнать текущую погоду.");
+            } else if (messageText.equals("/help")) {
+                sendResponse(chatId, "Доступные команды:\n/start - Начать работу с ботом\n/help - Справка по командам\nВведите название населенного пункта, чтобы узнать погоду.");
             } else {
-                String location = messageText.startsWith("/weather ") ? messageText.substring(9) : messageText;
-                try {
-                    String weatherInfo = getWeatherInfo(location);
-                    if (weatherInfo != null) {
-                        sendWeatherMessage(chatId, weatherInfo);
-                    } else {
-                        sendWeatherMessage(chatId, "Не удалось определить местоположение. Пожалуйста, уточните запрос.");
-                    }
-                } catch (IOException | InterruptedException e) {
-                    sendWeatherMessage(chatId, "Не удалось получить данные о погоде. Попробуйте позже.");
-                    e.printStackTrace();
-                }
+                handleWeatherRequest(chatId, messageText);
             }
         }
     }
 
-    private boolean locationExists(String location) throws IOException, InterruptedException {
-        String encodedLocation = URLEncoder.encode(location, StandardCharsets.UTF_8);
-        String openWeatherMapUrl = String.format("http://api.openweathermap.org/data/2.5/weather?q=%s&appid=%s", encodedLocation, WEATHER_API_KEY);
+    private void sendResponse(long chatId, String text) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setText(text);
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            LOGGER.log(Level.SEVERE, "Ошибка при отправке сообщения", e);
+        }
+    }
 
-        HttpResponse<String> response = sendHttpRequest(openWeatherMapUrl);
+    private void handleWeatherRequest(long chatId, String location) {
+        try {
+            OkHttpClient client = new OkHttpClient();
+            String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + location + "&count=1&language=ru&format=json";
+            Request geoRequest = new Request.Builder().url(geoUrl).build();
+            Response geoResponse = client.newCall(geoRequest).execute();
+            String geoResponseBody = geoResponse.body().string();
 
-        if (response != null) {
-            System.out.println("OpenWeatherMap Response Status Code: " + response.statusCode());
-            System.out.println("OpenWeatherMap Response Body: " + response.body());
+            JSONObject geoJson = new JSONObject(geoResponseBody);
+            JSONArray results = geoJson.getJSONArray("results");
 
-            if (response.statusCode() == 200) {
-                JSONObject jsonObject = new JSONObject(response.body());
-                return !jsonObject.has("message"); // Если сообщение ошибки отсутствует, место существует
+            if (results.length() > 0) {
+                JSONObject result = results.getJSONObject(0);
+                String featureCode = result.getString("feature_code");
+
+                // Проверка, является ли название населенного пунктом
+                if (!isValidLocation(location)) {
+                    sendResponse(chatId, "Пожалуйста, введите название населенного пункта.");
+                    return;
+                }
+
+                double latitude = result.getDouble("latitude");
+                double longitude = result.getDouble("longitude");
+
+                String weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + latitude + "&longitude=" + longitude + "&current_weather=true&hourly=temperature_2m";
+                Request weatherRequest = new Request.Builder().url(weatherUrl).build();
+                Response weatherResponse = client.newCall(weatherRequest).execute();
+                String weatherResponseBody = weatherResponse.body().string();
+
+                JSONObject weatherJson = new JSONObject(weatherResponseBody);
+                JSONObject currentWeather = weatherJson.getJSONObject("current_weather");
+                double temperature = currentWeather.getDouble("temperature");
+                int weatherCode = currentWeather.getInt("weathercode");
+
+                String weatherDescription = translateWeatherCode(weatherCode);
+                String recommendation = getClothingRecommendation(temperature, weatherDescription);
+
+                sendResponse(chatId, String.format("Текущая температура в \"%s\" составляет %.1f°C. \nПогодные условия: %s. %s",
+                        location, temperature, weatherDescription, recommendation));
+            } else {
+                sendResponse(chatId, "Населенный пункт не найден. Пожалуйста, проверьте ввод.");
+            }
+        } catch (Exception e) {
+            LOGGER.log(Level.SEVERE, "Ошибка при обработке запроса погоды", e);
+            sendResponse(chatId, "Ошибка при получении данных о погоде. Попробуйте позже.");
+        }
+    }
+
+    private JSONObject getWeatherData(String location) throws IOException {
+        OkHttpClient client = new OkHttpClient(); // Инициализация OkHttpClient
+
+        // Получение координат населенного пункта
+        String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + location + "&count=1&language=ru&format=json";
+        Request geoRequest = new Request.Builder().url(geoUrl).build();
+        Response geoResponse = client.newCall(geoRequest).execute();
+        String geoResponseBody = geoResponse.body().string();
+
+        // Логирование полного ответа для диагностики
+        LOGGER.info("Geo API Response: " + geoResponseBody);
+
+        JSONObject geoJson = new JSONObject(geoResponseBody);
+        JSONArray results = geoJson.getJSONArray("results");
+
+        if (results.length() > 0) {
+            JSONObject result = results.getJSONObject(0);
+            double latitude = result.getDouble("latitude");
+            double longitude = result.getDouble("longitude");
+
+            // Получение данных о текущей погоде
+            String weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + latitude + "&longitude=" + longitude + "&current_weather=true&hourly=temperature_2m";
+            Request weatherRequest = new Request.Builder().url(weatherUrl).build();
+            Response weatherResponse = client.newCall(weatherRequest).execute();
+            String weatherResponseBody = weatherResponse.body().string();
+
+            // Логирование полного ответа для диагностики
+            LOGGER.info("Weather API Response: " + weatherResponseBody);
+
+            JSONObject weatherJson = new JSONObject(weatherResponseBody);
+            return weatherJson.getJSONObject("current_weather");
+        }
+        return null;
+    }
+
+    private boolean isValidLocation(String location) throws IOException {
+        // Инициализация OkHttpClient
+        OkHttpClient client = new OkHttpClient();
+
+        // Запрос для получения данных о географическом объекте
+        String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + location + "&count=1&language=ru&format=json";
+        Request geoRequest = new Request.Builder().url(geoUrl).build();
+        Response geoResponse = client.newCall(geoRequest).execute();
+        String geoResponseBody = geoResponse.body().string();
+
+        // Логирование ответа от Geo API для диагностики
+        LOGGER.info("Geo API Response: " + geoResponseBody);
+
+        JSONObject geoJson = new JSONObject(geoResponseBody);
+        JSONArray results = geoJson.getJSONArray("results");
+
+        // Список допустимых значений feature_code для населенных пунктов
+        Set<String> validFeatureCodes = Set.of(
+                "PPL", "PPLA", "PPLA2", "PPLA3", "PPLA4", "PPLA5", "PPLC",
+                "PPLCH", "PPLF", "PPLG", "PPLH", "PPLL", "PPLQ", "PPLR",
+                "PPLS", "PPLW", "PPLX", "STLMT"
+        );
+
+        if (results.length() > 0) {
+            JSONObject result = results.getJSONObject(0);
+
+            // Проверка наличия и значения feature_code
+            if (result.has("feature_code")) {
+                String featureCode = result.getString("feature_code");
+                // Проверка, что feature_code соответствует допустимым значениям
+                return validFeatureCodes.contains(featureCode);
+            } else {
+                LOGGER.warning("Feature code not found in the response.");
             }
         }
         return false;
     }
 
-    private String getWeatherInfo(String location) throws IOException, InterruptedException {
-        if (!locationExists(location)) {
-            return null;
+
+    private String translateWeatherCode(int code) {
+        switch (code) {
+            case 0:
+                return "ясное небо ☀️";
+            case 1:
+                return "в основном ясно 🌤️";
+            case 2:
+                return "переменная облачность ⛅";
+            case 3:
+                return "пасмурно ☁️";
+            case 45:
+                return "туман 🌫️";
+            case 48:
+                return "осаждающий иней ❄️";
+            case 51:
+                return "морось, лёгкая 🌦️";
+            case 53:
+                return "морось, умеренная 🌧️";
+            case 55:
+                return "морось, густая 🌧️🌧️";
+            case 56:
+                return "ледяная морось, лёгкая 🌨️❄️️";
+            case 57:
+                return "ледяная морось, густая ❄️";
+            case 61:
+                return "дождь, слабый 🌧️";
+            case 63:
+                return "дождь, умеренный 🌧️🌧️";
+            case 65:
+                return "дождь, сильный 🌧️🌧️🌧️";
+            case 66:
+                return "ледяной дождь, лёгкий 🌨️❄️";
+            case 67:
+                return "ледяной дождь, сильный 🌨️🌨️❄️";
+            case 71:
+                return "снегопад, слабый ❄️";
+            case 73:
+                return "снегопад, умеренный ❄️❄️";
+            case 75:
+                return "снегопад, сильный ❄️❄️❄️";
+            case 77:
+                return "снежные зерна ❄️";
+            case 80:
+                return "ливни, слабые 🌧️";
+            case 81:
+                return "ливни, умеренные 🌧️️🌧️";
+            case 82:
+                return "ливни, сильные 🌧️🌧️🌧️";
+            case 85:
+                return "снегопады, слабые ❄️";
+            case 86:
+                return "снегопады, сильные ❄️❄️❄️️️️️";
+            case 95:
+                return "гроза, слабая или умеренная ⛈️";
+            case 96:
+                return "гроза с градом, слабая ⛈️⚡";
+            case 99:
+                return "гроза с градом, сильная ⛈️⚡⚡";
+            default:
+                return "неизвестные погодные условия ❓";
         }
-
-        String encodedLocation = URLEncoder.encode(location, StandardCharsets.UTF_8);
-        String weatherUrl = String.format("http://api.openweathermap.org/data/2.5/weather?q=%s&appid=%s&units=metric&lang=ru",
-                encodedLocation, WEATHER_API_KEY);
-        HttpResponse<String> weatherResponse = sendHttpRequest(weatherUrl);
-
-        if (weatherResponse != null && weatherResponse.statusCode() == 200) {
-            JSONObject weatherJsonObject = new JSONObject(weatherResponse.body());
-            double temperature = weatherJsonObject.getJSONObject("main").getDouble("temp");
-            String weatherDescription = weatherJsonObject.getJSONArray("weather").getJSONObject(0).getString("description");
-
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-            LocalDateTime timeUtc = LocalDateTime.now(ZoneId.of("UTC"));
-
-            LocalDateTime userTime = timeUtc.atZone(ZoneId.of("UTC")).withZoneSameInstant(USER_TIMEZONE).toLocalDateTime();
-            String formattedTime = userTime.format(DateTimeFormatter.ofPattern("HH:mm"));
-
-            String weatherInfo = String.format("Температура в городе %s (%s): %.1f°C, %s",
-                    location, formattedTime, temperature, weatherDescription);
-
-            weatherInfo += "\n\n" + getClothingRecommendation(temperature, weatherDescription);
-
-            return weatherInfo;
-        }
-        return null;
-    }
-
-    private HttpResponse<String> sendHttpRequest(String url) throws IOException, InterruptedException {
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("Accept", "application/json")
-                .build();
-
-        return client.send(request, HttpResponse.BodyHandlers.ofString());
-    }
-
-    private void sendStartMessage(Long chatId) {
-        String text = "Привет! Меня зовут MeteoMag, могу показать тебе погоду. Просто отправь мне название города.";
-        sendMessage(chatId, text);
-    }
-
-    private void sendWeatherMessage(long chatId, String weatherInfo) {
-        sendMessage(chatId, weatherInfo);
-    }
-
-    private void sendMessage(long chatId, String text) {
-        SendMessage message = new SendMessage();
-        message.setChatId(String.valueOf(chatId));
-        message.setText(text);
-        try {
-            execute(message);
-        } catch (TelegramApiException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private String translateWeatherDescription(String englishDescription) {
-        return weatherDescriptions.getOrDefault(englishDescription, englishDescription);
     }
 
     private String getClothingRecommendation(double temperature, String weatherDescription) {
         StringBuilder recommendation = new StringBuilder();
 
         if (temperature >= 25) {
-            recommendation.append("Жарко! ☀️ Наденьте легкую одежду: шорты, футболку или платье.");
+            recommendation.append("\nЖарко! Наденьте легкую одежду: шорты, футболку или платье.");
+            if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
+                recommendation.append(" \nЗонт не помешает.☔");
+            }
         } else if (temperature >= 15) {
-            recommendation.append("Тепло! 🌤️ Подойдут джинсы, футболка, легкая куртка.");
+            recommendation.append("\nНа улице тепло! Подойдут джинсы, футболка, легкая куртка.");
+            if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
+                recommendation.append(" \nНе забудьте взять дождевик или зонт!☔");
+            }
         } else if (temperature >= 5) {
-            recommendation.append("Прохладно. 🍂 Наденьте свитер, куртку, джинсы.");
+            recommendation.append("\nПрохладно. Наденьте свитер, куртку, джинсы.");
+            if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
+                recommendation.append(" \nСамое время взять зонт!☔");
+            }
         } else {
-            recommendation.append("Холодно! ❄️ Наденьте теплую куртку, шапку, шарф и перчатки.");
+            recommendation.append("\nХолодно. Наденьте теплую куртку, шапку, шарф и перчатки.");
+            if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
+                recommendation.append(" \nОденьтесь потеплее, возьмите зонт!☔");
+            }
         }
 
-        if (weatherDescription.contains("дождь")) {
-            recommendation.append("\nНе забудьте зонт! ☔️");
+        if (weatherDescription.toLowerCase().contains("снег")) {
+            recommendation.append(" \nОсторожнее на дорогах! Не прибегайте к резкому торможению для избежания заноса.");
+        } else if (weatherDescription.toLowerCase().contains("туман")) {
+            recommendation.append(" \nБудьте осторожны на дорогах из-за плохой видимости!");
         }
 
         return recommendation.toString();
     }
 
+
     public static void main(String[] args) {
         try {
+            // Инициализация API Telegram Bots
             TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
+
+            // Регистрация бота
             botsApi.registerBot(new MeteoMagBot());
+            System.out.println("MeteoMagBot успешно запущен!");
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
