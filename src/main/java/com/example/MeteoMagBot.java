@@ -96,7 +96,7 @@ public class MeteoMagBot extends TelegramLongPollingBot {
                 String weatherDescription = translateWeatherCode(weatherCode);
                 String recommendation = getClothingRecommendation(temperature, weatherDescription);
 
-                sendResponse(chatId, String.format("Текущая температура в \"%s\" составляет %.1f°C. \nПогодные условия: %s. %s",
+                sendResponse(chatId, String.format("Текущая температура в \"%s\" составляет %.1f°C. Погодные условия: %s. %s",
                         location, temperature, weatherDescription, recommendation));
             } else {
                 sendResponse(chatId, "Населенный пункт не найден. Пожалуйста, проверьте ввод.");
@@ -248,36 +248,35 @@ public class MeteoMagBot extends TelegramLongPollingBot {
         StringBuilder recommendation = new StringBuilder();
 
         if (temperature >= 25) {
-            recommendation.append("\nЖарко! Наденьте легкую одежду: шорты, футболку или платье.");
+            recommendation.append("Жарко! Наденьте легкую одежду: шорты, футболку или платье.");
             if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
-                recommendation.append(" \nЗонт не помешает.☔");
+                recommendation.append(" Зонт тоже пригодится, лучше взять ☔");
             }
         } else if (temperature >= 15) {
-            recommendation.append("\nНа улице тепло! Подойдут джинсы, футболка, легкая куртка.");
+            recommendation.append("На улице тепло! Подойдут джинсы, футболка, лёгкая куртка.");
             if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
-                recommendation.append(" \nНе забудьте взять дождевик или зонт!☔");
+                recommendation.append(" Самое время взять зонтик ☔");
             }
         } else if (temperature >= 5) {
-            recommendation.append("\nПрохладно. Наденьте свитер, куртку, джинсы.");
+            recommendation.append("Прохладно. Наденьте свитер, куртку, джинсы.");
             if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
-                recommendation.append(" \nСамое время взять зонт!☔");
+                recommendation.append(" Не забудьте взять дождевик или зонт!☔");
             }
         } else {
-            recommendation.append("\nХолодно. Наденьте теплую куртку, шапку, шарф и перчатки.");
+            recommendation.append("Холодно. Наденьте теплую куртку, шапку, шарф и перчатки.");
             if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
-                recommendation.append(" \nОденьтесь потеплее, возьмите зонт!☔");
+                recommendation.append(" Не забудьте взять дождевик или ваш зонт ☔");
             }
         }
 
         if (weatherDescription.toLowerCase().contains("снег")) {
-            recommendation.append(" \nОсторожнее на дорогах! Не прибегайте к резкому торможению для избежания заноса.");
+            recommendation.append(" Осторожнее на дорогах! Не прибегайте к резкому торможению для избежания заноса.");
         } else if (weatherDescription.toLowerCase().contains("туман")) {
-            recommendation.append(" \nБудьте осторожны на дорогах из-за плохой видимости!");
+            recommendation.append(" Будьте осторожны на дорогах из-за плохой видимости!");
         }
 
         return recommendation.toString();
     }
-
 
     public static void main(String[] args) {
         try {
