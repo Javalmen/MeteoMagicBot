@@ -1,1 +1,1 @@
-web: java -jar target/weather-bot-1.0-SNAPSHOT.jar
+web: java -jar target/meteomag-1.0-SNAPSHOT.jar
