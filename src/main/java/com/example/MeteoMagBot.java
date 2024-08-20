@@ -17,7 +17,6 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-
 public class MeteoMagBot extends TelegramLongPollingBot {
 
     private static final Logger LOGGER = Logger.getLogger(MeteoMagBot.class.getName());
@@ -39,9 +38,9 @@ public class MeteoMagBot extends TelegramLongPollingBot {
             long chatId = update.getMessage().getChatId();
 
             if (messageText.equals("/start")) {
-                sendResponse(chatId, "Привет! Я бот MeteoMag. Введите название населенного пункта, чтобы узнать текущую погоду.");
+                sendResponse(chatId, "Привет! Я бот MeteoMag. Введи название населенного пункта, чтобы узнать текущую погоду.");
             } else if (messageText.equals("/help")) {
-                sendResponse(chatId, "Доступные команды:\n/start - Начать работу с ботом\n/help - Справка по командам\nВведите название населенного пункта, чтобы узнать погоду.");
+                sendResponse(chatId, "Доступные команды:\n/start - Начать работу с ботом\n/help - Справка по командам\nВведи название населенного пункта, чтобы узнать погоду.");
             } else {
                 handleWeatherRequest(chatId, messageText);
             }
@@ -72,80 +71,50 @@ public class MeteoMagBot extends TelegramLongPollingBot {
 
             if (results.length() > 0) {
                 JSONObject result = results.getJSONObject(0);
-                String featureCode = result.getString("feature_code");
 
-                // Проверка, является ли название населенного пунктом
                 if (!isValidLocation(location)) {
-                    sendResponse(chatId, "Пожалуйста, введите название населенного пункта.");
+                    sendResponse(chatId, "Пожалуйста, введи название населенного пункта.");
                     return;
                 }
 
                 double latitude = result.getDouble("latitude");
                 double longitude = result.getDouble("longitude");
 
-                String weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + latitude + "&longitude=" + longitude + "&current_weather=true&hourly=temperature_2m";
+                String weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + latitude + "&longitude=" + longitude +
+                        "&hourly=temperature_2m,weather_code,wind_speed_10m,uv_index&wind_speed_unit=ms&forecast_hours=6";
                 Request weatherRequest = new Request.Builder().url(weatherUrl).build();
                 Response weatherResponse = client.newCall(weatherRequest).execute();
                 String weatherResponseBody = weatherResponse.body().string();
 
                 JSONObject weatherJson = new JSONObject(weatherResponseBody);
-                JSONObject currentWeather = weatherJson.getJSONObject("current_weather");
-                double temperature = currentWeather.getDouble("temperature");
-                int weatherCode = currentWeather.getInt("weathercode");
+                JSONObject currentWeather = weatherJson.getJSONObject("hourly");
+
+                // Извлечение данных
+                double temperature = currentWeather.getJSONArray("temperature_2m").getDouble(0);
+                int weatherCode = currentWeather.getJSONArray("weather_code").getInt(0);
+                double windSpeed = currentWeather.getJSONArray("wind_speed_10m").getDouble(0);
+                double uvIndex = currentWeather.getJSONArray("uv_index").getDouble(0);
 
                 String weatherDescription = translateWeatherCode(weatherCode);
                 String recommendation = getClothingRecommendation(temperature, weatherDescription);
 
-                sendResponse(chatId, String.format("Текущая температура в \"%s\" составляет %.1f°C. Погодные условия: %s. %s",
-                        location, temperature, weatherDescription, recommendation));
+                sendResponse(chatId, String.format(
+                        "Текущая температура в \"%s\" составляет %.1f°C. Погодные условия: %s " +
+                                "Скорость ветра: %.1f м/с. \n%s\n\nУровень ультрафиолета: %.1f. %s",
+                        location, temperature, weatherDescription, windSpeed,
+                        recommendation, uvIndex, getUVProtectionRecommendation(uvIndex)));
             } else {
-                sendResponse(chatId, "Населенный пункт не найден. Пожалуйста, проверьте ввод.");
+                sendResponse(chatId, "Населенный пункт не найден. Пожалуйста, проверь ввод.");
             }
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Ошибка при обработке запроса погоды", e);
-            sendResponse(chatId, "Ошибка при получении данных о погоде. Попробуйте позже.");
+            sendResponse(chatId, "Ошибка при получении данных о погоде. Проверь ввод или попробуй позже.");
         }
-    }
-
-    private JSONObject getWeatherData(String location) throws IOException {
-        OkHttpClient client = new OkHttpClient(); // Инициализация OkHttpClient
-
-        // Получение координат населенного пункта
-        String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + location + "&count=1&language=ru&format=json";
-        Request geoRequest = new Request.Builder().url(geoUrl).build();
-        Response geoResponse = client.newCall(geoRequest).execute();
-        String geoResponseBody = geoResponse.body().string();
-
-        // Логирование полного ответа для диагностики
-        LOGGER.info("Geo API Response: " + geoResponseBody);
-
-        JSONObject geoJson = new JSONObject(geoResponseBody);
-        JSONArray results = geoJson.getJSONArray("results");
-
-        if (results.length() > 0) {
-            JSONObject result = results.getJSONObject(0);
-            double latitude = result.getDouble("latitude");
-            double longitude = result.getDouble("longitude");
-
-            // Получение данных о текущей погоде
-            String weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + latitude + "&longitude=" + longitude + "&current_weather=true&hourly=temperature_2m";
-            Request weatherRequest = new Request.Builder().url(weatherUrl).build();
-            Response weatherResponse = client.newCall(weatherRequest).execute();
-            String weatherResponseBody = weatherResponse.body().string();
-
-            // Логирование полного ответа для диагностики
-            LOGGER.info("Weather API Response: " + weatherResponseBody);
-
-            JSONObject weatherJson = new JSONObject(weatherResponseBody);
-            return weatherJson.getJSONObject("current_weather");
-        }
-        return null;
     }
 
     private boolean isValidLocation(String location) throws IOException {
         // Инициализация OkHttpClient
         OkHttpClient client = new OkHttpClient();
-
         // Запрос для получения данных о географическом объекте
         String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + location + "&count=1&language=ru&format=json";
         Request geoRequest = new Request.Builder().url(geoUrl).build();
@@ -167,11 +136,8 @@ public class MeteoMagBot extends TelegramLongPollingBot {
 
         if (results.length() > 0) {
             JSONObject result = results.getJSONObject(0);
-
-            // Проверка наличия и значения feature_code
             if (result.has("feature_code")) {
                 String featureCode = result.getString("feature_code");
-                // Проверка, что feature_code соответствует допустимым значениям
                 return validFeatureCodes.contains(featureCode);
             } else {
                 LOGGER.warning("Feature code not found in the response.");
@@ -180,6 +146,19 @@ public class MeteoMagBot extends TelegramLongPollingBot {
         return false;
     }
 
+    private String getUVProtectionRecommendation(double uvIndex) {
+        if (uvIndex < 3) {
+            return "\nНизкий уровень UV \uD83D\uDFE2 Меры предосторожности минимальны. Можешь безопасно находиться на улице без дополнительной защиты.";
+        } else if (uvIndex < 6) {
+            return "\nУмеренный уровень UV \uD83D\uDFE1 Рекомендуется использовать солнцезащитный крем с SPF 30+. По желанию головной убор или солнцезащитные очки.";
+        } else if (uvIndex < 8) {
+            return "\nВысокий уровень UV \uD83D\uDFE0 Используй солнцезащитный крем с SPF 50+. Избегай прямого солнечного света в полуденные часы. Надевай головной убор и солнцезащитные очки.";
+        } else if (uvIndex < 11) {
+            return "\nОчень высокий уровень UV! \uD83D\uDD34 Используй солнцезащитный крем с SPF 50+ и выше. По возможности оставайся в помещении с 11 до 15 часов дня, на улице ищи тень. Надевай головной убор и солнцезащитные очки.";
+        } else {
+            return "\nЭкстремальный уровень UV! \uD83D\uDFE3 Используй крем с SPF 50+ и выше. По возможности избегай нахождения на улице или находись в тени. Надевай головной убор и солнцезащитные очки.";
+        }
+    }
 
     private String translateWeatherCode(int code) {
         switch (code) {
@@ -247,32 +226,28 @@ public class MeteoMagBot extends TelegramLongPollingBot {
     private String getClothingRecommendation(double temperature, String weatherDescription) {
         StringBuilder recommendation = new StringBuilder();
 
-        if (temperature >= 25) {
-            recommendation.append("Жарко! Наденьте легкую одежду: шорты, футболку или платье.");
-            if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
-                recommendation.append(" Зонт тоже пригодится, лучше взять ☔");
-            }
+        if (temperature >= 24) {
+            recommendation.append("\nВыбери лёгкую одежду: майка или футболка + шорты или лёгкие брюки.");
         } else if (temperature >= 15) {
-            recommendation.append("На улице тепло! Подойдут джинсы, футболка, лёгкая куртка.");
-            if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
-                recommendation.append(" Самое время взять зонтик ☔");
-            }
+            recommendation.append("\nПодойдет футболка или рубашка + джинсы или брюки. Можешь взять с собой лёгкую куртку.");
         } else if (temperature >= 5) {
-            recommendation.append("Прохладно. Наденьте свитер, куртку, джинсы.");
-            if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
-                recommendation.append(" Не забудьте взять дождевик или зонт!☔");
-            }
+            recommendation.append("\nОденься теплее, толстовка или свитшот + джинсы или брюки + пальто или куртка.");
+        } else if (temperature >= -5) {
+            recommendation.append("\nЧтобы не замерзнуть подойдет свитер + тёплая куртка или пальто + шапка (по желанию).");
+        } else if (temperature >= -15) {
+            recommendation.append("\nХолодно, лучше выбрать тёплую одежду: вязанный свитер, зимняя обувь, зимняя куртка/дубленка, шапка, перчатки, шарф.");
         } else {
-            recommendation.append("Холодно. Наденьте теплую куртку, шапку, шарф и перчатки.");
-            if (weatherDescription.toLowerCase().contains("дождь") || weatherDescription.toLowerCase().contains("ливни") || weatherDescription.toLowerCase().contains("гроза")) {
-                recommendation.append(" Не забудьте взять дождевик или ваш зонт ☔");
-            }
+            recommendation.append("\nДубак!\uD83E\uDD76 Доставай самую тёплую одежду: вязанный свитер, зимняя обувь, тулуп или тёплая куртка с мехом. Обязательно шапка, перчатки и шарф.");
+        }
+
+        if (weatherDescription.contains("дождь") || weatherDescription.contains("ливни") || weatherDescription.contains("гроза") || weatherDescription.contains("морось")) {
+            recommendation.append(" Захвати зонт и надень резиновую обувь☔");
         }
 
         if (weatherDescription.toLowerCase().contains("снег")) {
-            recommendation.append(" Осторожнее на дорогах! Не прибегайте к резкому торможению для избежания заноса.");
+            recommendation.append(" Осторожнее на дорогах! Не прибегай к резкому торможению для избежания заноса.");
         } else if (weatherDescription.toLowerCase().contains("туман")) {
-            recommendation.append(" Будьте осторожны на дорогах из-за плохой видимости!");
+            recommendation.append(" Будь осторожен на дороге из-за плохой видимости!");
         }
 
         return recommendation.toString();
@@ -282,12 +257,10 @@ public class MeteoMagBot extends TelegramLongPollingBot {
         try {
             // Инициализация API Telegram Bots
             TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
-
-            // Регистрация бота
             botsApi.registerBot(new MeteoMagBot());
             System.out.println("MeteoMagBot успешно запущен!");
         } catch (TelegramApiException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.SEVERE, "Ошибка при запуске бота", e);
         }
     }
 }
